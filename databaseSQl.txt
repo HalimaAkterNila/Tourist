@@ -1,0 +1,456 @@
+-- ============================================================
+-- Bangladesh Tourist App — Supabase Schema
+-- Run this in your Supabase SQL Editor (in order)
+-- ============================================================
+
+-- ─────────────────────────────────────────
+-- 1. PROFILES  (extends Supabase auth.users)
+-- ─────────────────────────────────────────
+create table public.profiles (
+  id          uuid primary key references auth.users(id) on delete cascade,
+  full_name   text,
+  avatar_url  text,
+  phone       text,
+  is_admin    boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+
+-- Auto-create a profile row whenever a new user signs up
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer as $$
+begin
+  insert into public.profiles (id, full_name, avatar_url)
+  values (
+    new.id,
+    new.raw_user_meta_data->>'full_name',
+    new.raw_user_meta_data->>'avatar_url'
+  );
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- ─────────────────────────────────────────
+-- 2. PLACES
+-- ─────────────────────────────────────────
+create table public.places (
+  id           bigint generated always as identity primary key,
+  division     text not null,            -- e.g. 'Dhaka'
+  name         text not null,
+  description  text,
+  image_url    text,
+  latitude     double precision,
+  longitude    double precision,
+  category     text,                     -- e.g. 'Beach', 'Forest', 'Historical'
+  created_at   timestamptz not null default now()
+);
+
+-- Sample data
+insert into public.places (division, name, description, image_url, category) values
+  ('Dhaka',      'Lalbagh Fort',        'A 17th-century Mughal fort complex.',          null, 'Historical'),
+  ('Dhaka',      'Ahsan Manzil',        'The Pink Palace, once home of the Nawabs.',    null, 'Historical'),
+  ('Chattogram', 'Foy''s Lake',         'An artificial lake surrounded by hills.',      null, 'Nature'),
+  ('Chattogram', 'Patenga Sea Beach',   'Popular sea beach near Chattogram city.',      null, 'Beach'),
+  ('Khulna',     'Sundarbans',          'Largest mangrove forest in the world.',        null, 'Forest'),
+  ('Sylhet',     'Ratargul Swamp Forest','Only freshwater swamp forest in Bangladesh.', null, 'Forest'),
+  ('Sylhet',     'Sreemangal Tea Garden','Rolling hills covered in tea plantations.',   null, 'Nature'),
+  ('Rajshahi',   'Somapura Mahavihara', 'UNESCO World Heritage Buddhist monastery.',   null, 'Historical'),
+  ('Barishal',   'Kuakata Sea Beach',   'Known as the Daughter of the Sea.',            null, 'Beach'),
+  ('Rangpur',    'Tajhat Palace',       'Early 20th-century Zamindar palace.',         null, 'Historical'),
+  ('Mymensingh', 'Muktagacha Zamindar Bari', 'Historic zamindar estate.',              null, 'Historical');
+
+-- ─────────────────────────────────────────
+-- 3. HOTELS
+-- ─────────────────────────────────────────
+create table public.hotels (
+  id           bigint generated always as identity primary key,
+  division     text not null,
+  name         text not null,
+  address      text,
+  price_per_night numeric(10,2) not null,
+  stars        int check (stars between 1 and 5),
+  image_url    text,
+  description  text,
+  created_at   timestamptz not null default now()
+);
+
+insert into public.hotels (division, name, address, price_per_night, stars) values
+  ('Dhaka',      'Pan Pacific Sonargaon', 'Kawran Bazar, Dhaka',     15000, 5),
+  ('Dhaka',      'Hotel 71',              'Nayapaltan, Dhaka',        4500, 3),
+  ('Chattogram', 'The Peninsula Chittagong', 'Agrabad, Chattogram',  12000, 5),
+  ('Sylhet',     'Rose View Hotel',       'Taltola, Sylhet',          5000, 4),
+  ('Khulna',     'Hotel Tiger Garden',    'Shib Bari, Khulna',        3500, 3),
+  ('Cox''s Bazar (Chattogram)', 'Long Beach Hotel', 'Kolatoli, Cox''s Bazar', 8000, 4);
+
+-- ─────────────────────────────────────────
+-- 4. TRANSPORTS
+-- ─────────────────────────────────────────
+create table public.transports (
+  id            bigint generated always as identity primary key,
+  type          text not null,   -- 'Bus', 'Train', 'Launch', 'Air'
+  operator      text not null,
+  from_location text not null,
+  to_location   text not null,
+  departure_time time,
+  price         numeric(10,2) not null,
+  available_seats int,
+  created_at    timestamptz not null default now()
+);
+
+insert into public.transports (type, operator, from_location, to_location, departure_time, price, available_seats) values
+  ('Bus',   'Shyamoli Paribahan',  'Dhaka',      'Chattogram', '08:00', 600,  40),
+  ('Bus',   'Hanif Enterprise',    'Dhaka',      'Sylhet',     '09:00', 550,  40),
+  ('Train', 'Bangladesh Railway',  'Dhaka',      'Khulna',     '06:20', 800,  100),
+  ('Train', 'Bangladesh Railway',  'Dhaka',      'Rajshahi',   '07:40', 700,  100),
+  ('Launch','BIWTC',               'Dhaka',      'Barishal',   '20:00', 400,  200),
+  ('Air',   'Biman Bangladesh',    'Dhaka',      'Cox''s Bazar','07:30',5500, 160);
+
+-- ─────────────────────────────────────────
+-- 5. TOUR GUIDES
+-- ─────────────────────────────────────────
+create table public.tour_guides (
+  id           bigint generated always as identity primary key,
+  name         text not null,
+  division     text not null,
+  phone        text,
+  languages    text[],             -- e.g. ARRAY['English','Bangla']
+  price_per_day numeric(10,2),
+  rating       numeric(3,1) check (rating between 0 and 5),
+  bio          text,
+  image_url    text,
+  created_at   timestamptz not null default now()
+);
+
+insert into public.tour_guides (name, division, phone, languages, price_per_day, rating) values
+  ('Rahim Uddin',   'Dhaka',      '01711-000001', ARRAY['English','Bangla'], 2000, 4.8),
+  ('Karim Ahmed',   'Chattogram', '01711-000002', ARRAY['English','Bangla'], 2200, 4.6),
+  ('Sumon Das',     'Sylhet',     '01711-000003', ARRAY['English','Bangla','Hindi'], 2500, 4.9),
+  ('Nasrin Akter',  'Khulna',     '01711-000004', ARRAY['English','Bangla'], 1800, 4.7),
+  ('Tanvir Hasan',  'Rajshahi',   '01711-000005', ARRAY['Bangla'],           1500, 4.3);
+
+-- ─────────────────────────────────────────
+-- 6. BOOKINGS
+-- ─────────────────────────────────────────
+create table public.bookings (
+  id             bigint generated always as identity primary key,
+  user_id        uuid not null references public.profiles(id) on delete cascade,
+  booking_type   text not null check (booking_type in ('hotel','transport','tour_guide')),
+  reference_id   bigint not null,   -- FK to hotels / transports / tour_guides
+  check_in       date,              -- for hotels
+  check_out      date,              -- for hotels
+  travel_date    date,              -- for transport / guide
+  guests         int not null default 1,
+  total_price    numeric(10,2) not null,
+  status         text not null default 'pending'
+                   check (status in ('pending','confirmed','cancelled')),
+  payment_status text not null default 'unpaid'
+                   check (payment_status in ('unpaid','paid','refunded')),
+  created_at     timestamptz not null default now()
+);
+
+-- ─────────────────────────────────────────
+-- 7. CURRENCY RATES
+-- ─────────────────────────────────────────
+create table public.currency_rates (
+  currency    text primary key,    -- 'USD', 'EUR', etc.
+  rate_to_bdt numeric(12,4) not null,
+  updated_at  timestamptz not null default now()
+);
+
+insert into public.currency_rates (currency, rate_to_bdt) values
+  ('USD', 110.00),
+  ('EUR', 120.00),
+  ('GBP', 140.00),
+  ('INR',   1.32),
+  ('SAR',  29.30),
+  ('AED',  29.95),
+  ('JPY',   0.73),
+  ('CAD',  80.50),
+  ('AUD',  72.00),
+  ('CNY',  15.20),
+  ('BDT',   1.00);
+
+-- ─────────────────────────────────────────
+-- 8. ROW LEVEL SECURITY (RLS)
+-- ─────────────────────────────────────────
+
+-- Enable RLS on all user-data tables
+alter table public.profiles       enable row level security;
+alter table public.bookings        enable row level security;
+alter table public.places          enable row level security;
+alter table public.hotels          enable row level security;
+alter table public.transports      enable row level security;
+alter table public.tour_guides     enable row level security;
+alter table public.currency_rates  enable row level security;
+
+-- profiles: users can read/update only their own row
+create policy "profiles_select_own" on public.profiles
+  for select using (auth.uid() = id);
+create policy "profiles_update_own" on public.profiles
+  for update using (auth.uid() = id);
+
+-- bookings: users can manage only their own bookings
+create policy "bookings_select_own" on public.bookings
+  for select using (auth.uid() = user_id);
+create policy "bookings_insert_own" on public.bookings
+  for insert with check (auth.uid() = user_id);
+create policy "bookings_update_own" on public.bookings
+  for update using (auth.uid() = user_id);
+
+-- Public read for reference data
+create policy "places_public_read"         on public.places         for select using (true);
+create policy "hotels_public_read"         on public.hotels         for select using (true);
+create policy "transports_public_read"     on public.transports     for select using (true);
+create policy "tour_guides_public_read"    on public.tour_guides    for select using (true);
+create policy "currency_rates_public_read" on public.currency_rates for select using (true);
+
+-- Admin full access (set is_admin = true in profiles to grant)
+create policy "admin_all_bookings" on public.bookings
+  for all using (
+    exists (select 1 from public.profiles where id = auth.uid() and is_admin = true)
+  );
+
+
+
+
+
+2nd Update
+
+
+
+
+-- ============================================================
+-- Fix: Auth trigger + profiles table
+-- Run this in Supabase SQL Editor
+-- ============================================================
+
+-- Step 1: Drop the old trigger and function
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user();
+
+-- Step 2: Recreate the function with NULL safety
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, full_name, avatar_url)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'full_name', ''),
+    coalesce(new.raw_user_meta_data->>'avatar_url', '')
+  )
+  on conflict (id) do nothing;  -- avoid duplicate insert errors
+  return new;
+end;
+$$;
+
+-- Step 3: Recreate the trigger
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- Step 4: Make sure profiles table allows insert from the trigger
+-- (security definer function runs as the function owner, but just in case)
+alter table public.profiles enable row level security;
+
+-- Drop old policies cleanly and recreate
+drop policy if exists "profiles_select_own"  on public.profiles;
+drop policy if exists "profiles_update_own"  on public.profiles;
+drop policy if exists "profiles_insert_own"  on public.profiles;
+
+-- Allow users to read their own profile
+create policy "profiles_select_own"
+  on public.profiles for select
+  using (auth.uid() = id);
+
+-- Allow users to insert their own profile (needed as fallback)
+create policy "profiles_insert_own"
+  on public.profiles for insert
+  with check (auth.uid() = id);
+
+-- Allow users to update their own profile
+create policy "profiles_update_own"
+  on public.profiles for update
+  using (auth.uid() = id);
+
+
+
+
+
+3rd update
+
+
+
+
+
+-- ============================================================
+-- COMPLETE FIX — Run entire script in Supabase SQL Editor
+-- ============================================================
+
+-- Step 1: Drop everything old
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user();
+drop table if exists public.profiles cascade;
+
+-- Step 2: Recreate profiles table with all nullable columns
+create table public.profiles (
+  id          uuid primary key references auth.users(id) on delete cascade,
+  full_name   text default '',
+  avatar_url  text default '',
+  phone       text default '',
+  is_admin    boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+
+-- Step 3: Disable RLS temporarily so nothing blocks inserts
+alter table public.profiles disable row level security;
+
+-- Step 4: Create the trigger function (bulletproof version)
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  _full_name text;
+begin
+  -- Safely extract full_name, default to empty string if anything is null
+  begin
+    _full_name := coalesce(new.raw_user_meta_data->>'full_name', '');
+  exception when others then
+    _full_name := '';
+  end;
+
+  insert into public.profiles (id, full_name)
+  values (new.id, _full_name)
+  on conflict (id) do nothing;
+
+  return new;
+
+
+
+
+
+update 4
+
+
+
+
+
+-- First, fill any existing nulls and set NOT NULL
+UPDATE profiles SET full_name = '' WHERE full_name IS NULL;
+ALTER TABLE profiles ALTER COLUMN full_name SET NOT NULL;
+ALTER TABLE profiles ADD CONSTRAINT profiles_full_name_key UNIQUE (full_name);
+
+-- Recreate trigger to handle full_name correctly
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, full_name)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', '')
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Ensure RLS allows inserts (already covered by your existing policies)
+exception when others then
+  -- Never block signup even if profile insert fails
+  return new;
+end;
+$$;
+
+-- Step 5: Attach the trigger
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- Step 6: Re-enable RLS with correct policies
+alter table public.profiles enable row level security;
+
+create policy "profiles_select_own"
+  on public.profiles for select
+  using (auth.uid() = id);
+
+create policy "profiles_insert_own"
+  on public.profiles for insert
+  with check (true);  -- allow trigger to insert freely
+
+create policy "profiles_update_own"
+  on public.profiles for update
+  using (auth.uid() = id);
+
+-- Step 7: Grant usage to authenticated and anon roles
+grant usage on schema public to anon, authenticated;
+grant all on public.profiles to anon, authenticated;
+
+
+
+
+
+
+update 5
+
+
+
+
+
+
+
+-- Create place_suggestions table
+CREATE TABLE public.place_suggestions (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    division    TEXT NOT NULL,                -- Division name
+    name        TEXT NOT NULL,
+    description TEXT,
+    category    TEXT,
+    latitude    DOUBLE PRECISION,
+    longitude   DOUBLE PRECISION,
+    image_url   TEXT,
+    suggested_by UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    admin_note  TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Enable RLS
+ALTER TABLE public.place_suggestions ENABLE ROW LEVEL SECURITY;
+
+-- Policies:
+-- Anyone authenticated can insert
+CREATE POLICY "place_suggestions_insert_own" ON public.place_suggestions
+    FOR INSERT WITH CHECK (auth.uid() = suggested_by);
+
+-- Users can see their own suggestions
+CREATE POLICY "place_suggestions_select_own" ON public.place_suggestions
+    FOR SELECT USING (auth.uid() = suggested_by);
+
+-- Admins can see all
+CREATE POLICY "place_suggestions_admin_all" ON public.place_suggestions
+    FOR ALL USING (
+        EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_admin = true)
+    );
+
+-- Optional: public cannot read pending suggestions
